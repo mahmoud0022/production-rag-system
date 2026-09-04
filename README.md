@@ -1,236 +1,246 @@
-# production-rag-system
+# Production RAG System
 
-A small, readable **Retrieval-Augmented Generation (RAG)** service.
-
-Upload a PDF, then ask questions about it. The API finds the most relevant
-passages and asks a local open-weight LLM (Qwen2.5 3B, served by
-[Ollama](https://ollama.com)) to answer using only those passages. No API key,
-no cost - everything runs on your machine.
-
-This is **phase 1**: the smallest version that actually works. It is built to be
-easy to read and easy to explain, and to grow later (see
-[Roadmap](#roadmap-later-phases)).
+A small retrieval-augmented generation (RAG) service: upload PDFs, ask questions,
+and get answers grounded in the PDF content. It runs fully locally with no paid
+APIs, and is also deployed to AWS.
 
 ---
 
-## What is RAG? (the pipeline, step by step)
+## 1. What this project does
 
-RAG = give the language model the right context *before* it answers, instead of
-hoping it already memorised the answer.
-
-```
-                        INGESTION (happens once per PDF)
-  ┌────────┐   ┌───────────────┐   ┌──────────┐   ┌────────────┐   ┌──────────┐
-  │  PDF   │ → │ extract text  │ → │  chunk   │ → │  embed     │ → │ ChromaDB │
-  │ upload │   │ (per page)    │   │ the text │   │ (vectors)  │   │ (store)  │
-  └────────┘   └───────────────┘   └──────────┘   └────────────┘   └──────────┘
-
-                        ASKING (happens for every question)
-  ┌──────────┐   ┌────────────────────┐   ┌──────────────────┐   ┌───────────┐
-  │ question │ → │ embed the question │ → │ ChromaDB returns │ → │ build a   │
-  │          │   │ + similarity search│   │ top-k chunks     │   │ prompt    │
-  └──────────┘   └────────────────────┘   └──────────────────┘   └─────┬─────┘
-                                                                       ▼
-                                        ┌──────────┐          ┌─────────────────┐
-                                        │  answer  │  ◄────── │ LLM (Ollama)    │
-                                        │ + sources│          │ answers using   │
-                                        └──────────┘          │ only the chunks │
-                                                              └─────────────────┘
-```
-
-1. **Upload a PDF** – `POST /upload`.
-2. **Extract text** – read the PDF one page at a time (`pypdf`).
-3. **Chunk** – cut each page into ~1000-character overlapping pieces. Small
-   pieces are easier to match to a specific question.
-4. **Embed** – turn each chunk into a vector (a list of numbers) with a small
-   embedding model that runs locally. Similar meaning → similar vector.
-5. **Store** – save the vectors and their text in **ChromaDB**, a local vector
-   database (just files on disk).
-6. **Ask a question** – `POST /ask`.
-7. **Retrieve** – embed the question the same way and ask ChromaDB for the
-   `top_k` most similar chunks.
-8. **Prompt + LLM** – paste those chunks and the question into a prompt template
-   and send it to the local LLM (Qwen2.5 3B via Ollama).
-9. **Respond** – return the answer plus the chunks it was based on, as JSON.
+- A user uploads a PDF through the API.
+- The text is extracted and split into overlapping chunks (~1000 characters).
+- Each chunk is turned into an embedding (a vector) and stored in ChromaDB.
+- The user asks a question.
+- The most relevant chunks are retrieved from ChromaDB by similarity.
+- Qwen 2.5 3B (served via Ollama) writes an answer using only those chunks.
+- PostgreSQL stores metadata about each uploaded document (filename, chunk count, time).
 
 ---
 
-## Folder structure
+## 2. Main technologies
 
-```
-production-rag-system/
-├── app/
-│   ├── __init__.py       marks "app" as a Python package
-│   ├── main.py           FastAPI app + endpoints: /health, /upload, /ask, /documents
-│   ├── config.py         all settings & model names, loaded from .env
-│   ├── ingestion.py      PDF -> text -> chunks -> embeddings -> ChromaDB
-│   ├── rag.py            retrieve chunks -> build prompt -> call the LLM
-│   ├── db.py             PostgreSQL: `documents` table + tiny helper functions
-│   └── models.py         Pydantic request/response models
-├── data/                 uploaded PDFs + the ChromaDB files live here (git-ignored)
-├── tests/
-│   └── test_basic.py     a few fast tests (no API key needed)
-├── conftest.py           lets tests import the "app" package
-├── Dockerfile            builds the FastAPI app image
-├── .dockerignore         keeps junk out of the Docker build
-├── docker-compose.yml    runs the app (api) + PostgreSQL (postgres)
-├── .env.example          template for your .env
-├── requirements.txt      dependencies
-├── .gitignore
-└── README.md
-```
-
-### What each file does
-
-| File | Responsibility |
-|------|----------------|
-| `app/main.py` | Defines the FastAPI app and the HTTP endpoints. `/upload` calls `ingest_pdf` then `save_document`; `/ask` calls `answer_question`; `/documents` calls `list_documents`. Thin - no logic of its own. |
-| `app/config.py` | One `Settings` class (from `pydantic-settings`) holding the Ollama URL, `DATABASE_URL`, model names, chunk size, `top_k`, etc. Exposes a single `settings` object. |
-| `app/ingestion.py` | The "write" path. `load_pdf`, `split_into_chunks`, `get_vector_store`, and `ingest_pdf` which runs them in order. |
-| `app/rag.py` | The "read" path. `retrieve_chunks`, `build_prompt`, `ask_llm`, and `answer_question` which ties them together. Contains the prompt template. |
-| `app/db.py` | SQLAlchemy engine + the `Document` table (`id`, `filename`, `chunks_added`, `uploaded_at`) + `create_tables`, `save_document`, `list_documents`. Only stores upload metadata; the RAG pipeline never touches it. |
-| `app/models.py` | `UploadResponse`, `QuestionRequest`, `Source`, `AnswerResponse`, `DocumentOut` - the JSON shapes, used by FastAPI for validation and `/docs`. |
-| `tests/test_basic.py` | Checks `/health`, the `QuestionRequest` model, and that chunking splits a long text. Runs without keys or network. |
-| `conftest.py` | Empty except for a docstring; its presence makes `import app...` work in tests. |
+- **FastAPI** – the web API (upload, ask, list documents, health).
+- **ChromaDB** – local vector database that stores the chunk embeddings and text.
+- **Sentence Transformers / MiniLM** (`all-MiniLM-L6-v2`) – turns chunks and questions into embeddings; runs locally.
+- **Ollama** – runs the local language model and exposes it over HTTP.
+- **Qwen 2.5 3B** – the open-weight LLM that writes the final answer.
+- **PostgreSQL** – relational database for uploaded-document metadata.
+- **Docker / Docker Compose** – runs FastAPI and PostgreSQL as containers.
+- **Pytest** – automated tests for the pipeline and the API.
+- **GitHub Actions CI/CD** – runs tests on every push/PR and deploys on success.
+- **MLflow** – records evaluation runs (parameters + metrics) so configs can be compared.
+- **AWS EC2** – the cloud server the project is deployed to.
 
 ---
 
-## Setup & run
+## 3. Simple architecture
 
-Requires [Ollama](https://ollama.com/download) on the host (always), plus either
-Python 3.11+ (tested on 3.13) for Option A, or Docker for Option B.
+```
+User
+  |
+FastAPI
+  |
+  +--> PDF ingestion --> chunks --> embeddings --> ChromaDB
+  |
+  +--> question --> retrieval --> optional reranking --> Qwen via Ollama
+  |
+  +--> PostgreSQL for document metadata
+```
 
-### Option A - app on the host, PostgreSQL in Docker
+- FastAPI is the single entry point for everything.
+- Ingestion is the "write" path: PDF in, embeddings into ChromaDB.
+- Asking is the "read" path: retrieve chunks, optionally rerank, send them to Qwen.
+- Reranking is off by default (it did not improve results — see section 8).
+- PostgreSQL only stores document metadata; it is not used to answer questions.
+
+---
+
+## 4. Project structure
+
+- `app/` – application code
+  - `main.py` – FastAPI app and endpoints
+  - `config.py` – all settings (models, chunking, DB URL, reranker flag)
+  - `ingestion.py` – load PDF, chunk, embed, store in ChromaDB
+  - `rag.py` – retrieve chunks, optional rerank, call the LLM
+  - `rerank.py` – optional CrossEncoder reranker
+  - `db.py` / `models.py` – PostgreSQL table + request/response schemas
+- `tests/` – pytest suite (`test_basic.py`, fakes in `conftest.py`)
+- `evaluation/` – evaluation script, question dataset, tuning notes
+- `Dockerfile` – builds the FastAPI image (CPU-only PyTorch)
+- `docker-compose.yml` – runs `api` + `postgres`
+- `.github/workflows/ci.yml` – runs tests on GitHub
+- `.github/workflows/cd.yml` – deploys to EC2 after CI passes
+- `requirements.txt` – Python dependencies
+
+---
+
+## 5. How to run locally
+
+Requires Python 3.11+ (tested on 3.13), Docker, and Ollama.
 
 ```bash
-# 1. get the local LLM (one-time; ~2 GB download)
+# 1. start PostgreSQL
+docker compose up -d postgres
+
+# 2. make sure Ollama is running (usually starts automatically after install)
+ollama serve
+
+# 3. pull the model (one-time, ~2 GB)
 ollama pull qwen2.5:3b
-ollama serve                      # keep running; on Windows/macOS it starts automatically
 
-# 2. start ONLY PostgreSQL
-docker compose up -d postgres     # postgres on localhost:5432 (ragdb / raguser / ragpassword)
-
-# 3. install Python deps
+# 4. install Python dependencies
 python -m venv .venv
 .venv\Scripts\activate            # Windows
 # source .venv/bin/activate       # macOS / Linux
 pip install -r requirements.txt
 
-# 4. configure (optional - defaults already work)
-cp .env.example .env
-
-# 5. run the API (creates the `documents` table on startup)
+# 5. run the API
 uvicorn app.main:app --reload
+
+# 6. open the interactive docs
+#    http://localhost:8000/docs
 ```
 
-### Option B - app + PostgreSQL both in Docker
+Upload a PDF with `POST /upload` before asking questions.
 
-Ollama still runs on the host. `docker compose up` builds the `api` image from
-the `Dockerfile` and starts both containers.
+---
 
-```bash
-# 1. Ollama on the host, model pulled
-ollama pull qwen2.5:3b
+## 6. Main API endpoints
 
-# 2. build the image and start everything
-docker compose up --build
+- `GET /health` – returns `{"status": "ok"}` when the service is up.
+- `POST /upload` – upload a PDF; it is chunked, embedded into ChromaDB, and recorded in PostgreSQL.
+- `POST /ask` – send a question; returns an answer plus the source chunks used.
+- `GET /documents` – list metadata for all uploaded PDFs, newest first.
 
-#    API:  http://localhost:8000/docs
-#    stop: Ctrl+C, then `docker compose down`  (add -v to also wipe the DB)
-```
+---
 
-**How the pieces talk to each other**
+## 7. Testing
 
-| From | To | Address | Why |
-|------|-----|---------|-----|
-| `api` container | PostgreSQL | `postgres:5432` | Compose puts both on one network; `postgres` is the service name. Set via `DATABASE_URL` in `docker-compose.yml`. |
-| `api` container | Ollama (host) | `host.docker.internal:11434` | Ollama is not in Docker; this name routes from the container back to Windows. Set via `OLLAMA_BASE_URL`. |
-| Browser / curl | `api` | `localhost:8000` | `ports: "8000:8000"` publishes the container port. |
-
-Those two env vars override the `localhost` defaults in `app/config.py`.
-Uploaded PDFs and the ChromaDB files stay in `./data` on the host (bind mount),
-so they survive `docker compose down`.
-
-Open <http://localhost:8000/docs> for an interactive UI.
+- `pytest` runs **7 tests**: health, chunking, upload, documents, retrieval, and ask.
+- The tests fake the external parts (Ollama, ChromaDB, and the PostgreSQL engine), so they are fast and need no running services.
+- CI runs `pytest` automatically on every push and pull request to `main`.
 
 ```bash
-# upload a PDF
-curl -F "file=@mydoc.pdf" http://localhost:8000/upload
-
-# ask a question
-curl -X POST http://localhost:8000/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question": "What is this document about?"}'
-
-# list uploaded documents (metadata from PostgreSQL)
-curl http://localhost:8000/documents
-```
-
-## Running the tests
-
-```bash
-pip install -r requirements.txt   # once
 pytest
 ```
 
-The tests are fast and fully offline. `tests/conftest.py` swaps the external
-parts for fakes, so a normal run needs **no Ollama, no embedding-model download,
-and no PostgreSQL**:
+---
 
-- the vector store -> a tiny in-memory `FakeVectorStore`
-- the LLM call (`ask_llm`) -> a fixed string
-- the database -> a throwaway SQLite file per test (same table as Postgres)
-- uploaded files -> a temp folder
+## 8. Evaluation
 
-They cover `/health`, chunking, `/upload`, `/documents`, retrieval, and `/ask`.
-Expected result: **7 passed** in well under a second.
+- The evaluation runs **20 questions** based on `data/uploads/07_LiteratureReview.pdf`.
+- Metrics:
+  - **retrieval hit rate** – did the retrieved chunks contain the expected fact?
+  - **answer accuracy** – did the generated answer contain the expected facts?
+  - **average latency** – average time to answer one question.
+- Best configuration:
+  - `chunk_size = 1000`
+  - `chunk_overlap = 150`
+  - `top_k = 8`
+  - reranker disabled by default
+- Best measured result:
+  - retrieval hit rate: **85%**
+  - answer accuracy: **100%**
+  - average latency: **~6.5–6.9 s** locally
 
-> On first run the embedding model (~90 MB) downloads automatically and the
-> `data/chroma/` folder is created. The Qwen2.5 3B model (~2 GB) is downloaded
-> once by `ollama pull`.
+Reranking (a CrossEncoder second pass) was tested. It did not improve retrieval
+and slightly lowered answer accuracy while adding latency, so it stays optional
+and off by default (set `USE_RERANKER=true` to try it).
 
 ---
 
-## Design choices (useful for interviews)
+## 9. MLflow
 
-- **Local LLM via Ollama** (`qwen2.5:3b`) – small open-weight model, runs on a
-  laptop, no API key or bill. Swap the model by changing `LLM_MODEL` in `.env`.
-- **Local embedding model** (`all-MiniLM-L6-v2`) – no API key, no cost, fine for
-  learning. Swap for a hosted model later by changing one line in `config.py`.
-- **ChromaDB on disk** – zero setup, no server to run. It is a drop-in stand-in
-  for a managed vector DB later.
-- **No classes / no abstraction layers** – just small named functions in five
-  files. Each pipeline step is one function you can point at and explain.
-- **Sources returned with every answer** – makes it easy to see *why* the model
-  said what it said.
+- Every evaluation run can be logged as one MLflow run.
+- It stores the configuration (parameters) and the results (metrics).
+- This makes it easy to compare different settings over time.
 
----
+```bash
+python -m evaluation.evaluate
+mlflow ui --host 127.0.0.1 --port 5000 --workers 1
+```
 
-## Roadmap (later phases)
-
-Deliberately **not** in phase 1, to be added on top of this same structure:
-
-| Phase | Adds |
-|-------|------|
-| 2 | PostgreSQL for document metadata & history; Alembic migrations |
-| 3 | Docker + `docker-compose` (api + chroma + postgres) |
-| 4 | Auth (API keys), background workers for ingestion |
-| 5 | CI/CD (GitHub Actions), AWS deployment |
-| 6 | Better retrieval (hybrid search, reranking), chat history |
-| 7 | Monitoring/logging, RAG evaluation (faithfulness, answer relevance) |
+Open http://127.0.0.1:5000 and look at the `rag-evaluation` experiment.
+Local MLflow data (`mlruns/`, `mlflow.db`) is not committed to Git.
 
 ---
 
-## Next implementation step
+## 10. Docker
 
-Fill in the pipeline and run it end to end:
+- FastAPI and PostgreSQL run in containers via Docker Compose.
+- Ollama runs **outside** Docker, on the host; the container reaches it at `host.docker.internal`.
+- ChromaDB files are persisted in `./data` (bind mount).
+- PostgreSQL data is persisted in a Docker named volume.
+- The image installs **CPU-only PyTorch** so it does not pull large CUDA/NVIDIA packages on CPU-only machines.
 
-1. `ollama pull qwen2.5:3b`, then `pip install -r requirements.txt` and create `.env`.
-2. Confirm `pytest` passes (it should already - the tests don't call Ollama).
-3. Start the server and `POST /upload` a small PDF; check the response says
-   `chunks_added > 0` and that `data/chroma/` now has files.
-4. `POST /ask` a question you know the PDF answers; check `answer` and `sources`.
-5. Tune `CHUNK_SIZE`, `CHUNK_OVERLAP`, and `TOP_K` in `.env` and notice how the
-   answers change.
+```bash
+docker compose up --build -d
+docker compose ps
+docker compose down
+```
 
-Once that works, move to phase 2.
+---
+
+## 11. AWS deployment
+
+- The project is deployed on an **AWS EC2** instance (Ubuntu).
+- Docker runs **FastAPI + PostgreSQL** on the instance.
+- **Ollama and Qwen run directly on the EC2 host**, not in Docker.
+- ChromaDB persists under `data/` on the instance.
+- The API is exposed on **port 8000**.
+- Qwen runs on CPU there, so answers are slower than on a local machine with better hardware.
+
+The public IP can change, so it is not written here.
+
+---
+
+## 12. CI/CD
+
+**CI** (`.github/workflows/ci.yml`)
+
+```
+push / pull request --> GitHub Actions --> install deps --> pytest
+```
+
+**CD** (`.github/workflows/cd.yml`)
+
+```
+CI succeeds --> GitHub Actions --> AWS SSM --> EC2 --> git pull --> Docker rebuild/restart
+```
+
+- Deployment uses **AWS Systems Manager (SSM)** to run commands on the instance.
+- No direct SSH from GitHub is needed.
+- AWS credentials and the instance ID are stored as **GitHub Secrets**.
+
+---
+
+## 13. Important persistence
+
+- **Uploaded PDFs + ChromaDB** – `./data` (bind mount; kept between runs).
+- **PostgreSQL** – Docker named volume (`postgres_data`).
+- **MLflow experiment data** – local only (`mlruns/`, `mlflow.db`); ignored by Git.
+
+---
+
+## 14. Current final setup
+
+- Local RAG pipeline works.
+- Docker (FastAPI + PostgreSQL) works.
+- PostgreSQL document metadata works.
+- Tests pass (7/7).
+- CI works.
+- Evaluation works.
+- MLflow tracking works.
+- AWS EC2 deployment works.
+- CD (auto-deploy after CI) works.
+
+---
+
+## 15. Future improvements
+
+- HTTPS and a domain name.
+- A stronger cloud instance or a GPU for faster Qwen inference.
+- Managed PostgreSQL (e.g. AWS RDS).
+- Better monitoring.
+- Authentication for the API.
