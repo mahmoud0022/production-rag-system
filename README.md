@@ -71,7 +71,9 @@ production-rag-system/
 ├── tests/
 │   └── test_basic.py     a few fast tests (no API key needed)
 ├── conftest.py           lets tests import the "app" package
-├── docker-compose.yml    runs the PostgreSQL container
+├── Dockerfile            builds the FastAPI app image
+├── .dockerignore         keeps junk out of the Docker build
+├── docker-compose.yml    runs the app (api) + PostgreSQL (postgres)
 ├── .env.example          template for your .env
 ├── requirements.txt      dependencies
 ├── .gitignore
@@ -95,16 +97,18 @@ production-rag-system/
 
 ## Setup & run
 
-Requires Python 3.11+ (tested on 3.13), [Ollama](https://ollama.com/download),
-and Docker (for PostgreSQL).
+Requires [Ollama](https://ollama.com/download) on the host (always), plus either
+Python 3.11+ (tested on 3.13) for Option A, or Docker for Option B.
+
+### Option A - app on the host, PostgreSQL in Docker
 
 ```bash
 # 1. get the local LLM (one-time; ~2 GB download)
 ollama pull qwen2.5:3b
 ollama serve                      # keep running; on Windows/macOS it starts automatically
 
-# 2. start PostgreSQL
-docker compose up -d              # postgres on localhost:5432 (db/user/pass: ragdb/raguser/ragpassword)
+# 2. start ONLY PostgreSQL
+docker compose up -d postgres     # postgres on localhost:5432 (ragdb / raguser / ragpassword)
 
 # 3. install Python deps
 python -m venv .venv
@@ -118,6 +122,34 @@ cp .env.example .env
 # 5. run the API (creates the `documents` table on startup)
 uvicorn app.main:app --reload
 ```
+
+### Option B - app + PostgreSQL both in Docker
+
+Ollama still runs on the host. `docker compose up` builds the `api` image from
+the `Dockerfile` and starts both containers.
+
+```bash
+# 1. Ollama on the host, model pulled
+ollama pull qwen2.5:3b
+
+# 2. build the image and start everything
+docker compose up --build
+
+#    API:  http://localhost:8000/docs
+#    stop: Ctrl+C, then `docker compose down`  (add -v to also wipe the DB)
+```
+
+**How the pieces talk to each other**
+
+| From | To | Address | Why |
+|------|-----|---------|-----|
+| `api` container | PostgreSQL | `postgres:5432` | Compose puts both on one network; `postgres` is the service name. Set via `DATABASE_URL` in `docker-compose.yml`. |
+| `api` container | Ollama (host) | `host.docker.internal:11434` | Ollama is not in Docker; this name routes from the container back to Windows. Set via `OLLAMA_BASE_URL`. |
+| Browser / curl | `api` | `localhost:8000` | `ports: "8000:8000"` publishes the container port. |
+
+Those two env vars override the `localhost` defaults in `app/config.py`.
+Uploaded PDFs and the ChromaDB files stay in `./data` on the host (bind mount),
+so they survive `docker compose down`.
 
 Open <http://localhost:8000/docs> for an interactive UI.
 

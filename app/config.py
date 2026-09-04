@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     # --- LLM (local, served by Ollama - no API key, no cost) ---
     # Start Ollama with `ollama serve` and pull the model with
     # `ollama pull qwen2.5:3b` before asking questions.
+    # Local default below; in Docker, docker-compose.yml sets
+    # OLLAMA_BASE_URL=http://host.docker.internal:11434 (Ollama stays on the host).
     ollama_base_url: str = "http://localhost:11434"
     llm_model: str = "qwen2.5:3b"
 
@@ -26,7 +28,8 @@ class Settings(BaseSettings):
     collection_name: str = "documents"
 
     # --- PostgreSQL (document metadata only; the RAG pipeline never uses it) ---
-    # Matches the `postgres` service in docker-compose.yml.
+    # Local default below; in Docker, docker-compose.yml sets DATABASE_URL with
+    # host `postgres` (the compose service name) instead of `localhost`.
     database_url: str = "postgresql+psycopg://raguser:ragpassword@localhost:5432/ragdb"
 
     # --- How PDFs are split before embedding ---

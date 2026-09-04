@@ -1,0 +1,12 @@
+# Keep the build context small and local-only files out of the image.
+.venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.pytest_cache/
+data/
+.env
+tests/
+conftest.py
+README.md

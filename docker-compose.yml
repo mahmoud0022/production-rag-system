@@ -1,6 +1,7 @@
-# Docker Compose file for local infrastructure.
-# For now it runs ONLY PostgreSQL. The app, Ollama and ChromaDB stay outside
-# Docker at this stage and will be added in a later phase.
+# Local dev stack: FastAPI app (api) + PostgreSQL (postgres).
+# NOT containerised yet:
+#   - Ollama runs on the Windows host; the api reaches it via host.docker.internal
+#   - ChromaDB is just files on disk, kept in the ./data bind mount
 
 services:
   postgres:
@@ -20,7 +21,7 @@ services:
       POSTGRES_PASSWORD: ragpassword
 
     # Map host port 5432 -> container port 5432 so tools on your machine
-    # (psql, a GUI client, later the FastAPI app) can connect on localhost:5432.
+    # (psql, a GUI client) can still connect on localhost:5432.
     ports:
       - "5432:5432"
 
@@ -30,13 +31,53 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
     # Health check: ask PostgreSQL if it is ready to accept connections.
-    # `docker compose ps` will show "healthy" once it passes.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U raguser -d ragdb"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-# Named volume referenced above. Docker manages its location on disk.
+  api:
+    # Build the image from the root-level Dockerfile.
+    build: .
+
+    container_name: rag-api
+    restart: unless-stopped
+
+    # Expose the API on http://localhost:8000
+    ports:
+      - "8000:8000"
+
+    # Override the localhost defaults from app/config.py for the Docker network.
+    environment:
+      # Reach PostgreSQL by its compose service name, not localhost.
+      DATABASE_URL: postgresql+psycopg://raguser:ragpassword@postgres:5432/ragdb
+      # Ollama runs on the host machine, not in Docker.
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+
+    # Persist uploaded PDFs (data/uploads) and ChromaDB files (data/chroma)
+    # on the host, exactly like running the app locally.
+    volumes:
+      - ./data:/app/data
+
+    # Make "host.docker.internal" resolve to the host on Linux/WSL too
+    # (on Docker Desktop for Windows/Mac it already works).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    # Wait until PostgreSQL reports healthy before starting the API.
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    # Basic health check: hit our own /health endpoint.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+# Named volume for the database files. Docker manages its location on disk.
 volumes:
   postgres_data:
