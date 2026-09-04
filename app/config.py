@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     chunk_overlap: int = 150
 
     # --- How many chunks to retrieve for each question ---
-    top_k: int = 4
+    top_k: int = 8
 
 
 # One shared instance used across the app.
