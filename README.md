@@ -61,15 +61,17 @@ hoping it already memorised the answer.
 production-rag-system/
 ├── app/
 │   ├── __init__.py       marks "app" as a Python package
-│   ├── main.py           FastAPI app + endpoints: /health, /upload, /ask
+│   ├── main.py           FastAPI app + endpoints: /health, /upload, /ask, /documents
 │   ├── config.py         all settings & model names, loaded from .env
 │   ├── ingestion.py      PDF -> text -> chunks -> embeddings -> ChromaDB
 │   ├── rag.py            retrieve chunks -> build prompt -> call the LLM
+│   ├── db.py             PostgreSQL: `documents` table + tiny helper functions
 │   └── models.py         Pydantic request/response models
 ├── data/                 uploaded PDFs + the ChromaDB files live here (git-ignored)
 ├── tests/
 │   └── test_basic.py     a few fast tests (no API key needed)
 ├── conftest.py           lets tests import the "app" package
+├── docker-compose.yml    runs the PostgreSQL container
 ├── .env.example          template for your .env
 ├── requirements.txt      dependencies
 ├── .gitignore
@@ -80,11 +82,12 @@ production-rag-system/
 
 | File | Responsibility |
 |------|----------------|
-| `app/main.py` | Defines the FastAPI app and the three HTTP endpoints. `/upload` saves the file and calls `ingest_pdf`; `/ask` calls `answer_question`. Thin - no logic of its own. |
-| `app/config.py` | One `Settings` class (from `pydantic-settings`) holding the Ollama URL, model names, chunk size, `top_k`, etc. Exposes a single `settings` object. |
+| `app/main.py` | Defines the FastAPI app and the HTTP endpoints. `/upload` calls `ingest_pdf` then `save_document`; `/ask` calls `answer_question`; `/documents` calls `list_documents`. Thin - no logic of its own. |
+| `app/config.py` | One `Settings` class (from `pydantic-settings`) holding the Ollama URL, `DATABASE_URL`, model names, chunk size, `top_k`, etc. Exposes a single `settings` object. |
 | `app/ingestion.py` | The "write" path. `load_pdf`, `split_into_chunks`, `get_vector_store`, and `ingest_pdf` which runs them in order. |
 | `app/rag.py` | The "read" path. `retrieve_chunks`, `build_prompt`, `ask_llm`, and `answer_question` which ties them together. Contains the prompt template. |
-| `app/models.py` | `UploadResponse`, `QuestionRequest`, `Source`, `AnswerResponse` - the JSON shapes, used by FastAPI for validation and `/docs`. |
+| `app/db.py` | SQLAlchemy engine + the `Document` table (`id`, `filename`, `chunks_added`, `uploaded_at`) + `create_tables`, `save_document`, `list_documents`. Only stores upload metadata; the RAG pipeline never touches it. |
+| `app/models.py` | `UploadResponse`, `QuestionRequest`, `Source`, `AnswerResponse`, `DocumentOut` - the JSON shapes, used by FastAPI for validation and `/docs`. |
 | `tests/test_basic.py` | Checks `/health`, the `QuestionRequest` model, and that chunking splits a long text. Runs without keys or network. |
 | `conftest.py` | Empty except for a docstring; its presence makes `import app...` work in tests. |
 
@@ -92,23 +95,27 @@ production-rag-system/
 
 ## Setup & run
 
-Requires Python 3.11+ (tested on 3.13) and [Ollama](https://ollama.com/download).
+Requires Python 3.11+ (tested on 3.13), [Ollama](https://ollama.com/download),
+and Docker (for PostgreSQL).
 
 ```bash
 # 1. get the local LLM (one-time; ~2 GB download)
 ollama pull qwen2.5:3b
 ollama serve                      # keep running; on Windows/macOS it starts automatically
 
-# 2. install Python deps
+# 2. start PostgreSQL
+docker compose up -d              # postgres on localhost:5432 (db/user/pass: ragdb/raguser/ragpassword)
+
+# 3. install Python deps
 python -m venv .venv
 .venv\Scripts\activate            # Windows
 # source .venv/bin/activate       # macOS / Linux
 pip install -r requirements.txt
 
-# 3. configure (optional - defaults already work)
+# 4. configure (optional - defaults already work)
 cp .env.example .env
 
-# 4. run the API
+# 5. run the API (creates the `documents` table on startup)
 uvicorn app.main:app --reload
 ```
 
@@ -122,6 +129,9 @@ curl -F "file=@mydoc.pdf" http://localhost:8000/upload
 curl -X POST http://localhost:8000/ask \
   -H "Content-Type: application/json" \
   -d '{"question": "What is this document about?"}'
+
+# list uploaded documents (metadata from PostgreSQL)
+curl http://localhost:8000/documents
 ```
 
 Run the tests:

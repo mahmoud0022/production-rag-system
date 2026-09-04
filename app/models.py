@@ -4,7 +4,9 @@ FastAPI uses these to validate incoming JSON, to serialise responses, and to
 build the automatic documentation at `/docs`.
 """
 
-from pydantic import BaseModel
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict
 
 
 class UploadResponse(BaseModel):
@@ -32,3 +34,15 @@ class AnswerResponse(BaseModel):
 
     answer: str
     sources: list[Source]
+
+
+class DocumentOut(BaseModel):
+    """One row from the `documents` table (returned by GET /documents)."""
+
+    # Allow building this model straight from a SQLAlchemy ORM object.
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    filename: str
+    chunks_added: int
+    uploaded_at: datetime

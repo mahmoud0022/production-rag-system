@@ -1,0 +1,42 @@
+# Docker Compose file for local infrastructure.
+# For now it runs ONLY PostgreSQL. The app, Ollama and ChromaDB stay outside
+# Docker at this stage and will be added in a later phase.
+
+services:
+  postgres:
+    # Official PostgreSQL image, pinned to a major version for reproducibility.
+    image: postgres:16
+
+    # Friendly name for the running container.
+    container_name: rag-postgres
+
+    # Restart automatically unless we stop it ourselves.
+    restart: unless-stopped
+
+    # Values PostgreSQL reads on first startup to create the DB and login role.
+    environment:
+      POSTGRES_DB: ragdb
+      POSTGRES_USER: raguser
+      POSTGRES_PASSWORD: ragpassword
+
+    # Map host port 5432 -> container port 5432 so tools on your machine
+    # (psql, a GUI client, later the FastAPI app) can connect on localhost:5432.
+    ports:
+      - "5432:5432"
+
+    # Persist the database files in a named volume so data survives
+    # `docker compose down` and container recreation.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    # Health check: ask PostgreSQL if it is ready to accept connections.
+    # `docker compose ps` will show "healthy" once it passes.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raguser -d ragdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# Named volume referenced above. Docker manages its location on disk.
+volumes:
+  postgres_data:

@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     chroma_dir: str = "./data/chroma"
     collection_name: str = "documents"
 
+    # --- PostgreSQL (document metadata only; the RAG pipeline never uses it) ---
+    # Matches the `postgres` service in docker-compose.yml.
+    database_url: str = "postgresql+psycopg://raguser:ragpassword@localhost:5432/ragdb"
+
     # --- How PDFs are split before embedding ---
     chunk_size: int = 1000
     chunk_overlap: int = 150
