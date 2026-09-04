@@ -1,0 +1,82 @@
+[
+  {
+    "question": "What kind of transformer model is ModernBERT?",
+    "expected_facts": ["encoder-only"]
+  },
+  {
+    "question": "What native sequence length does ModernBERT support?",
+    "expected_facts": ["8,192"]
+  },
+  {
+    "question": "How many tokens was ModernBERT pretrained on?",
+    "expected_facts": ["2 trillion"]
+  },
+  {
+    "question": "What type of positional embeddings does ModernBERT use?",
+    "expected_facts": ["rotary positional embeddings"]
+  },
+  {
+    "question": "Which activation function does ModernBERT use in its layers?",
+    "expected_facts": ["geglu"]
+  },
+  {
+    "question": "Which GPU-optimized attention kernels does ModernBERT rely on for efficiency?",
+    "expected_facts": ["flashattention"]
+  },
+  {
+    "question": "What context-window size limited the original BERT model?",
+    "expected_facts": ["512"]
+  },
+  {
+    "question": "Why does ModernBERT use rotary positional embeddings instead of absolute ones?",
+    "expected_facts": ["relative", "absolute"]
+  },
+  {
+    "question": "How do GeGLU activations compare to the standard GELU activation?",
+    "expected_facts": ["expressivity", "gelu"]
+  },
+  {
+    "question": "How does ModernBERT's alternating attention balance context and efficiency?",
+    "expected_facts": ["global", "local"]
+  },
+  {
+    "question": "How does Longformer handle long documents efficiently?",
+    "expected_facts": ["sliding window", "global tokens"]
+  },
+  {
+    "question": "How does Reformer reduce memory use during training?",
+    "expected_facts": ["hashing", "reversible layers"]
+  },
+  {
+    "question": "Which recent models does the review say compared themselves against ModernBERT?",
+    "expected_facts": ["gte-en-mlm", "nomicbert"]
+  },
+  {
+    "question": "What benefit did including code data in pretraining give ModernBERT?",
+    "expected_facts": ["code-related tasks", "overlooked"]
+  },
+  {
+    "question": "How do Longformer, Reformer, and ModernBERT differ in their attention mechanisms?",
+    "expected_facts": ["sliding window", "hashing", "alternating"]
+  },
+  {
+    "question": "According to the conclusion, which architectural refinements does ModernBERT combine?",
+    "expected_facts": ["geglu", "rope", "alternating attention"]
+  },
+  {
+    "question": "Which baseline models and benchmarks were used to show ModernBERT outperforms other long-context encoders?",
+    "expected_facts": ["debertav3", "glue", "beir", "codesearchnet"]
+  },
+  {
+    "question": "How does ModernBERT achieve fast, memory-efficient inference on widely available GPUs?",
+    "expected_facts": ["unpadding", "flashattention", "gpus"]
+  },
+  {
+    "question": "According to the conclusion, what are ModernBERT's main practical applications and what kind of framework is it built in?",
+    "expected_facts": ["retrieval", "classification", "hardware-aware"]
+  },
+  {
+    "question": "What trade-off do the different attention mechanisms face, and how does ModernBERT's approach address it?",
+    "expected_facts": ["computational cost", "modeling power", "balanced"]
+  }
+]
