@@ -166,11 +166,24 @@ curl -X POST http://localhost:8000/ask \
 curl http://localhost:8000/documents
 ```
 
-Run the tests:
+## Running the tests
 
 ```bash
+pip install -r requirements.txt   # once
 pytest
 ```
+
+The tests are fast and fully offline. `tests/conftest.py` swaps the external
+parts for fakes, so a normal run needs **no Ollama, no embedding-model download,
+and no PostgreSQL**:
+
+- the vector store -> a tiny in-memory `FakeVectorStore`
+- the LLM call (`ask_llm`) -> a fixed string
+- the database -> a throwaway SQLite file per test (same table as Postgres)
+- uploaded files -> a temp folder
+
+They cover `/health`, chunking, `/upload`, `/documents`, retrieval, and `/ask`.
+Expected result: **7 passed** in well under a second.
 
 > On first run the embedding model (~90 MB) downloads automatically and the
 > `data/chroma/` folder is created. The Qwen2.5 3B model (~2 GB) is downloaded
