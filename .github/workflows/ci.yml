@@ -1,0 +1,37 @@
+# Continuous Integration: install deps and run the test suite.
+# The tests fake Ollama / PostgreSQL / ChromaDB, so CI needs no services.
+
+name: CI
+
+# Run on every push to main and on PRs that target main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    # GitHub-hosted Ubuntu runner.
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Get the repository code.
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      # 2. Install Python 3.13.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # 3. Upgrade pip, then install project dependencies.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 4. Run the tests.
+      - name: Run pytest
+        run: pytest
