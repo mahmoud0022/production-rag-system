@@ -23,6 +23,10 @@ pypdf>=5.0                       # PDF parsing used by PyPDFLoader
 sqlalchemy>=2.0
 psycopg[binary]>=3.1            # PostgreSQL driver for the postgresql+psycopg:// URL
 
+# --- Evaluation tracking ---
+mlflow>=2.16                     # local experiment tracking for evaluation runs
+anyio<4.12                       # MLflow UI compatibility on Windows
+
 # --- Tests ---
 pytest>=8.3
 httpx>=0.27                      # used by FastAPI's TestClient

@@ -12,6 +12,10 @@ venv/
 data/*
 !data/.gitkeep
 
+# MLflow local experiment tracking
+mlruns/
+mlflow.db
+
 # Editors / OS
 .vscode/
 .idea/
