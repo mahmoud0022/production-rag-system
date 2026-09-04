@@ -10,6 +10,7 @@ from langchain_ollama import ChatOllama
 from app.config import settings
 from app.ingestion import get_vector_store
 from app.models import AnswerResponse, Source
+from app.rerank import rerank
 
 # Kept simple and visible on purpose - this is the heart of "RAG".
 PROMPT_TEMPLATE = """Answer the question using only the context below.
@@ -41,8 +42,13 @@ def ask_llm(prompt: str) -> str:
 
 
 def answer_question(question: str) -> AnswerResponse:
-    """Full RAG flow: retrieve -> build prompt -> ask LLM -> structured response."""
-    chunks = retrieve_chunks(question)
+    """Full RAG flow: retrieve -> (optional rerank) -> build prompt -> ask LLM -> response."""
+    chunks = retrieve_chunks(question)                             # stage 1: ChromaDB, top_k
+
+    # Stage 2 is optional. Off by default; enable with USE_RERANKER=true.
+    if settings.use_reranker:
+        chunks = rerank(question, chunks, settings.rerank_top_n)   # CrossEncoder, keep top_n
+
     prompt = build_prompt(question, chunks)
     answer = ask_llm(prompt)
     sources = [Source(text=c.page_content, page=c.metadata.get("page")) for c in chunks]

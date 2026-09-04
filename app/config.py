@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     # --- How many chunks to retrieve for each question ---
     top_k: int = 8
 
+    # --- Reranking (second stage: re-score the top_k chunks, keep the best) ---
+    # Off by default; set USE_RERANKER=true to turn it on.
+    use_reranker: bool = False
+    # Small open-source CrossEncoder; downloaded locally on first use, no API.
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    # How many chunks survive reranking and are sent to the LLM.
+    rerank_top_n: int = 4
+
 
 # One shared instance used across the app.
 settings = Settings()
